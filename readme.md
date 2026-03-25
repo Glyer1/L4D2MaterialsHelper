@@ -59,6 +59,7 @@
 
 ## 📁 项目结构
 
+<pre>
 L4D2MaterialsHelper/
 ├── 🖥️ mainwindow.cpp/h          # 主窗口
 ├── 🔧 componentsetting.cpp/h    # 组件配置
@@ -71,7 +72,7 @@ L4D2MaterialsHelper/
 │   └── vpkgenerator.cpp/h
 ├── 🛠️ utils/fileutils.h          # 工具类
 └── 📋 datastructures.h           # 数据结构
-
+</pre>
 ---
 
 ## 🚀 使用步骤
