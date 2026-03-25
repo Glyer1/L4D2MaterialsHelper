@@ -95,8 +95,8 @@ L4D2MaterialsHelper/
 
 ## 📦 依赖工具
 
-- [MareTF](https://github.com/craftablescience/MareTF) - VTF 转换工具（已放置）
-- [VPK Tool](https://developer.valvesoftware.com/wiki/VPK) - Valve 打包工具（已放置）
+- [MareTF](https://github.com/craftablescience/MareTF) - VTF 转换工具（需自行下载）
+- [VPK Tool](https://developer.valvesoftware.com/wiki/VPK) - Valve 打包工具（需自行下载）
 - [FreeImage](https://freeimage.sourceforge.io/) - 图像处理库（需自行下载）
 
 ---
