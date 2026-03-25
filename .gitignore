@@ -1,0 +1,13 @@
+# 第三方库
+thirdparty/
+
+# 个人日志
+个人日志/
+
+# 编译目录
+build/
+
+# Qt Creator 配置
+.qtcreator/
+*.user
+*.pro.user
