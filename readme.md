@@ -60,17 +60,17 @@
 ## 📁 项目结构
 
 L4D2MaterialsHelper/
-├── 🖥️ mainwindow.cpp/h # 主窗口
-├── 🔧 componentsetting.cpp/h # 组件配置
-├── 🎨 materialsetting.cpp/h # 材质配置
+├── 🖥️ mainwindow.cpp/h          # 主窗口
+├── 🔧 componentsetting.cpp/h    # 组件配置
+├── 🎨 materialsetting.cpp/h      # 材质配置
 ├── 🔀 variantconfigdialog.cpp/h # 变体配置
-├── 📦 processors/ # 核心处理模块
-│ ├── texturepreprocessor.cpp/h
-│ ├── vtfgenerator.cpp/h
-│ ├── vmtgenerator.cpp/h
-│ └── vpkgenerator.cpp/h
-├── 🛠️ utils/fileutils.h # 工具类
-└── 📋 datastructures.h # 数据结构
+├── 📦 processors/                # 核心处理模块
+│   ├── texturepreprocessor.cpp/h
+│   ├── vtfgenerator.cpp/h
+│   ├── vmtgenerator.cpp/h
+│   └── vpkgenerator.cpp/h
+├── 🛠️ utils/fileutils.h          # 工具类
+└── 📋 datastructures.h           # 数据结构
 
 ---
 
