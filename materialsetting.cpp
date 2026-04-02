@@ -165,7 +165,7 @@ MaterialSetting::MaterialSetting(QWidget *parent)
     QLabel *animatedHint = new QLabel(
         "💡动图贴图：用 @ 分隔多个帧，例如：tex_sora_0@tex_sora_1@tex_sora_2\n"
         "程序会自动识别将其合并成一张vtf，并用第一个'@'前的差分名命名\n"
-        "基础贴图(png)/Lightwarp(vtf)/Bumpmap(png/vtf)/Envmap(vtf)/独立alpha(png)"
+        "基础贴图(vtf/png)/Lightwarp(vtf)/Bumpmap(png/vtf)/Envmap(vtf)/独立alpha(png)/emissive(png)"
         "只填文件名,将文件放入Resources/SourceTextures，不要后缀\n"
         "或者使用浏览或者拖拽入编辑框来更改图片", this);
     animatedHint->setWordWrap(true);
@@ -266,7 +266,7 @@ MaterialSetting::MaterialSetting(QWidget *parent)
     connect(comboEmissiveSource, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MaterialSetting::onEmissiveSourceChanged);
     connect(btnBrowseEmissive, &QPushButton::clicked, this, [this]() {
-        QString file = QFileDialog::getOpenFileName(this, "选择Emissive贴图", "", "PNG图片 (*.png);;VTF文件 (*.vtf)");
+        QString file = QFileDialog::getOpenFileName(this, "选择Emissive贴图", "", "PNG图片 (*.png)");
         if (!file.isEmpty()) {
             handleFileDrop({file}, editEmissive, "png", false, comboEmissiveSource);
         }
@@ -952,6 +952,9 @@ void MaterialSetting::dropEvent(QDropEvent *event)
         if (chkAlphaTexture->isChecked()) {
             handleFileDrop(files, editAlphaTexture, "png", false, nullptr);
         }
+    }
+    else if (target == editEmissive || target == btnBrowseEmissive) {
+        handleFileDrop(files, editEmissive, "png", false, comboEmissiveSource);
     }
 }
 

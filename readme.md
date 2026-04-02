@@ -5,7 +5,7 @@
 **《求生之路2》材质自动化处理工具**
 
 [![C++](https://img.shields.io/badge/C++-17-blue.svg?style=flat-square&logo=c%2B%2B)](https://isocpp.org/)
-[![Qt](https://img.shields.io/badge/Qt-6.10-green.svg?style=flat-square&logo=qt)](https://www.qt.io/)
+[![Qt](https://img.shields.io/badge/Qt-6.8.x-green.svg?style=flat-square&logo=qt)](https://www.qt.io/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square&logo=windows)](https://www.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Glyer1/L4D2MaterialsHelper?style=flat-square&logo=github)](https://github.com/Glyer1/L4D2MaterialsHelper/stargazers)
@@ -36,7 +36,7 @@
 | 🧩 **组件化配置**      | 创建组件（如鞋子、裙子），为每个组件配置材质和颜色变体       |
 | 🔧 **完整流水线**      | PNG/TGA → 预处理 → VTF → VMT → VPK，支持跳过任意步骤         |
 | 🌈 **变体系统**        | 自动递归生成所有材质+差分的组合，每个变体独立打包            |
-| 📝 **自定义 VMT 模板** | 支持 `{{base}}`、`{{light}}`、`{{bump}}`、`{{env}}` 占位符   |
+| 📝 **自定义 VMT 模板** | 支持 `{{base}}`、`{{light}}`、`{{bump}}`、`{{env}}`、`{{aemissive}}`占位符   |
 | 📊 **进度反馈**        | 实时进度条和完整日志记录                                     |
 
 ---
@@ -94,19 +94,16 @@ L4D2MaterialsHelper/
 
 ---
 
-## 📦 依赖工具
-
-- [MareTF](https://github.com/craftablescience/MareTF) - VTF 转换工具（需自行下载）
-- [VPK Tool](https://developer.valvesoftware.com/wiki/VPK) - Valve 打包工具（需自行下载）
-- [FreeImage](https://freeimage.sourceforge.io/) - 图像处理库（需自行下载）
-
----
-
 ## 💻 环境要求
 
 - Windows 10 / 11
-- Qt 6.10+（如需编译源码）
-- Visual Studio 2022 或 MinGW
+- 本工具 Release 版本已打包所有依赖（MareTF、vpk.exe、FreeImage.dll），**解压即用**
+- 如果打开提示“缺少 VCRUNTIME140.dll”，请安装：
+  [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+
+> 如需从源码编译，需要 Qt 6.8+ 和 Visual Studio 2022 / MinGW
+
+- 安装后重新打开软件即可。
 
 ---
 
@@ -115,14 +112,21 @@ L4D2MaterialsHelper/
 ```bash
 # 克隆仓库
 git clone https://github.com/Glyer1/L4D2MaterialsHelper.git
-
+# 添加关键依赖
 # 用 Qt Creator 打开 .pro 文件
 # 编译运行
 ```
 
-## 📄 许可证
+## 🙏 致谢与许可证
 
-本项目采用 **MIT License** 开源协议。
+本项目的开发离不开以下优秀的开源项目和工具，在此表示由衷感谢：
+
+- **[Qt](https://www.qt.io/)**：采用 **LGPLv3** 许可证。本工具动态链接 Qt 库。
+- **[FreeImage](http://freeimage.sourceforge.io/)**：采用 **GPLv2 / GPLv3** 许可证。本工具以动态链接方式调用 `freeimage.dll`，用于图像处理。
+- **[MareTF](https://github.com/craftablescience/MareTF)**：采用 **MIT** 许可证。本工具将其作为外部程序调用，用于 VTF 格式转换。版权归 [craftablescience](https://github.com/craftablescience) 所有。
+- **[vpk.exe]**：Valve 官方 VPK 打包工具，随 Source SDK 分发。本工具仅将其作为外部工具调用，不修改其代码。
+
+本工具（L4D2 Materials Helper）的源代码基于 **MIT 许可证** 开源，详情请见项目根目录下的 [LICENSE](LICENSE) 文件。
 
 ---
 
