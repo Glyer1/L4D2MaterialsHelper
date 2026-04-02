@@ -103,6 +103,16 @@ QString VMTGenerator::generateVMTContent(const Material &mat, const QString &sel
             vmt.replace("{{env}}", envPath);
         }
 
+        // 5. {{aemissive}} - 自发光贴图
+        if (vmt.contains("{{aemissive}}")) {
+            QString emissivePath;
+            if (!mat.Memissive.isEmpty() && mat.MemissiveSource == SOURCE_USER) {
+                QString emissiveName = cleanFileName(mat.Memissive);
+                emissivePath = matPath + "/" + emissiveName;
+            }
+            vmt.replace("{{aemissive}}", emissivePath);
+        }
+
         // 最终检查：是否还有未识别的变量标记
         if (vmt.contains("{{") && vmt.contains("}}")) {
             // 提取未替换的变量名用于提示
@@ -361,6 +371,11 @@ bool VMTGenerator::generateAll()
                 if (!copyBumpmapToVariant(*mat, targetDir, sourceBasePath)) {
                     emit logMessage(QString("  警告：bumpmap处理失败"));
                 }
+
+                // 处理 emissive
+                if (!copyEmissiveToVariant(*mat, targetDir, sourceBasePath)) {
+                    emit logMessage(QString("  警告：emissive处理失败"));
+                }
             }
 
             current++;
@@ -615,4 +630,102 @@ bool VMTGenerator::copyBumpmapToVariant(const Material &mat, const QString &targ
     }
 
     return success;
+}
+
+//复制emissive贴图到变体
+bool VMTGenerator::copyEmissiveToVariant(const Material &mat, const QString &targetDir, const QString &sourceBasePath)
+{
+    // 只有用户文件夹模式才需要复制
+    if (mat.MemissiveSource != SOURCE_USER || mat.Memissive.isEmpty()) {
+        return true;
+    }
+
+    QString emissiveName = cleanFileName(mat.Memissive);
+
+    // 1. 优先检查 VTF 文件
+    QString srcVtf = sourceBasePath + "/" + emissiveName + ".vtf";
+    if (QFile::exists(srcVtf)) {
+        QString dstVtf = targetDir + "/" + emissiveName + ".vtf";
+        if (QFile::exists(dstVtf)) {
+            QFile::remove(dstVtf);
+        }
+        if (QFile::copy(srcVtf, dstVtf)) {
+            emit logMessage(QString("  ✅ Emissive 复制成功: %1.vtf").arg(emissiveName));
+            return true;
+        } else {
+            emit logMessage(QString("  ❌ Emissive 复制失败: %1.vtf").arg(emissiveName));
+            return false;
+        }
+    }
+
+    // 2. 检查 PNG 文件
+    QString srcPng = sourceBasePath + "/" + emissiveName + ".png";
+    if (!QFile::exists(srcPng)) {
+        emit logMessage(QString("  ⚠️ Emissive 文件不存在: %1 (尝试了 .vtf 和 .png)").arg(emissiveName));
+        return false;
+    }
+
+    // 3. PNG 需要转换成 VTF
+    emit logMessage(QString("  转换 Emissive PNG: %1.png").arg(emissiveName));
+
+    // 创建临时目录
+    QString tempPngDir = tempDir + "/pngGenerated/";
+    FileUtils::ensureDirExists(tempPngDir);
+
+    QString tempPngFile = tempPngDir + emissiveName + ".png";
+    if (QFile::exists(tempPngFile)) {
+        QFile::remove(tempPngFile);
+    }
+
+    if (!QFile::copy(srcPng, tempPngFile)) {
+        emit logMessage(QString("  ❌ 复制 Emissive PNG 到临时目录失败"));
+        return false;
+    }
+
+    // 调用 VTFGenerator 转换
+    VTFGenerator vtfGen;
+    vtfGen.setMareTFPath(maretfPath);
+
+    Material tempMat;
+    tempMat.MFilename = emissiveName;
+    tempMat.vmtName = emissiveName;
+    tempMat.MAlpha = false;
+    tempMat.useAlphaTexture = false;
+    tempMat.hasDiff = false;
+
+    QList<Material> singleMatList;
+    singleMatList.append(tempMat);
+    vtfGen.setMaterials(singleMatList);
+    vtfGen.setTempDir(tempDir);
+
+    QStringList pngFiles;
+    pngFiles.append(emissiveName + ".png");
+    vtfGen.setPngFiles(pngFiles);
+    vtfGen.setTgaFiles(QStringList());
+
+    if (!vtfGen.convertAll()) {
+        emit logMessage(QString("  ❌ Emissive PNG 转换失败: %1").arg(emissiveName));
+        return false;
+    }
+
+    // 复制转换后的 VTF 到目标目录
+    QString srcConvertedVtf = tempDir + "/vtfGenerated/" + emissiveName + ".vtf";
+    QString dstVtf = targetDir + "/" + emissiveName + ".vtf";
+
+    if (!QFile::exists(srcConvertedVtf)) {
+        emit logMessage(QString("  ❌ 转换后的 Emissive VTF 不存在: %1").arg(emissiveName));
+        return false;
+    }
+
+    if (QFile::exists(dstVtf)) {
+        QFile::remove(dstVtf);
+    }
+
+    if (QFile::copy(srcConvertedVtf, dstVtf)) {
+        emit logMessage(QString("  ✅ Emissive 转换成功: %1.vtf").arg(emissiveName));
+        return true;
+    } else {
+        emit logMessage(QString("  ❌ 复制 Emissive VTF 失败"));
+        return false;
+    }
 }

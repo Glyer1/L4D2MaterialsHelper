@@ -8,6 +8,7 @@
 #include <QDialog>
 #include <QTextEdit>
 #include "datastructures.h"
+#include <QLabel>
 namespace Ui {
 class MaterialSetting;
 }
@@ -21,12 +22,20 @@ public:
     explicit MaterialSetting(QWidget *parent = nullptr);
     ~MaterialSetting();
 
-    // 加载材质数据到弹窗
-    void setMaterialData(Material &mat, const QList<Component> &componentNames);
-    // 获取编辑后的材质数据
-    void getMaterialData(Material &mat);
+    // 获取编辑后的材质数据,没用了
+    //void getMaterialData(Material &mat);
     void setAllMaterials(const QList<Material> &mats) { allMaterials = mats; }
-    void setEditingMode(bool isEdit);
+
+    //设置材质设置的信息，代替setMaterialData方法
+    void setMaterialGroup(const QString &component,
+                      const QString &vmtName,
+                      const QList<Material*> &diffList,
+                          const QList<Component> &comps);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+
 private:
     Ui::MaterialSetting *ui;
 
@@ -43,7 +52,8 @@ private:
     QComboBox *comboMatName;  // 下拉选择组件材质
     QComboBox *comboComponent;
     QCheckBox *chkHasDiff;
-    QComboBox *comboDiff;
+    QLabel *labApplyToAll;
+    QPushButton *btnApplyToAll;//这个是强制应用预设到差分的
 
     QLineEdit *editFilename;
 
@@ -55,6 +65,8 @@ private:
 
     QLineEdit *editEnvmap;
     QComboBox *comboEnvmapSource;
+
+    QComboBox *comboBaseSource;
 
     QCheckBox *chkAlpha;
     QCheckBox *chkNocull;
@@ -72,6 +84,35 @@ private:
     QList<Material> allMaterials;//存储所有材质
     QString currentMaterialId;  // 当前正在编辑的材质ID
 
+    QList<Material*> currentDiffList;//当前材质组所有差分，指针，可以改值
+    Material* currentMaterial;//当前正在编辑的差分，指针，可以改值
+    QString currentComponent;
+    QString currentVmtName;
+
+    QComboBox* comboDiffSelect;//差分下拉框
+    QComboBox* comboVmtTemplate;//vmt内容
+
+    QPushButton *btnBrowseFilename;
+    QPushButton *btnBrowseLightwarp;
+    QPushButton *btnBrowseBumpmap;
+    QPushButton *btnBrowseEnvmap;
+    QPushButton *btnBrowseAlphaTexture;  // 独立Alpha贴图浏览按钮
+
+    QLineEdit *editEmissive;
+    QComboBox *comboEmissiveSource;
+    QPushButton *btnBrowseEmissive;
+
+
+    void loadMaterialToUI(const Material &mat);//展示到面板上
+
+    //拆分getmaterial，旧代码因为和保存同步的代码混在一起，直接去掉换差分的代码
+    void saveMaterialParams(Material &mat);   // 只保存贴图参数
+
+    // 辅助函数：处理拖拽/浏览的文件
+    void copyToSourcePath(const QString &filePath);
+    void handleFileDrop(const QStringList &files, QLineEdit *targetEdit,
+                        const QString &expectedSuffix, bool multiFile,QComboBox *sourceCombo);
+
 private slots:
     void onComponentChanged(int index);  // 组件选择变化
     void onHasDiffChanged(bool checked);  // 是否有差分改变
@@ -84,6 +125,15 @@ private slots:
     // 新增：Alpha贴图相关槽函数
     void onAlphaTextureToggled(bool checked);
     void onAlphaHighlightToggled(bool checked);  // 需要连接chkAlpha的信号
+
+    void onDiffSelectChanged(int index);//切换差分切换整个面板的数据
+    void onAccepted();//新增
+
+    void onApplyToAll();//将组件差分预设强制应用到当前组件
+
+    void onVmtTemplateChanged(int index);
+
+    void onEmissiveSourceChanged(int index);
 };
 
 #endif // MATERIALSETTING_H

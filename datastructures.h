@@ -14,14 +14,17 @@ struct MaterialInComponent
     QStringList diffNames;
 };
 
-//材质列表的材质结构体
+//材质列表的材质结构体(差分)
 struct Material
 {
     QString id;
+    QString materialDefId;
     QString MFilename;         //basetexture名字
     QString vmtName;
     QString Mname;
     QString Mcomponent;
+    QString Memissive;
+    QString MemissiveSource;
 
     QString Mlightwarp;      // lightwarp路径
     QString Mbumpmap;        // bumpmap路径
@@ -53,6 +56,16 @@ struct Material
     bool useAlphaTexture = false;      // 是否使用独立Alpha贴图
     QString alphaTextureName;          // Alpha贴图名称（不含后缀）
 
+};
+
+//材质列表的材质结构体(理解为组)
+struct MaterialGroup{
+
+    QString vmtName;
+    QList<Material*> diffList;
+
+    QString displayName;//中文名
+    QString component;
 };
 
 //mod信息

@@ -66,6 +66,31 @@ bool TexturePreprocessor::process()
 //材质分开处理-分tga还是png，还有帧
 bool TexturePreprocessor::processMaterial(const Material &mat, const QString &tempDir)
 {
+    // 单帧材质
+    // 先检查是否有 VTF 文件
+    QString vtfFile = sourcePath + "/" + mat.MFilename + ".vtf";
+    if (QFile::exists(vtfFile)) {
+        // 计算目标文件名
+        QString outputName;
+        if (mat.hasDiff && !mat.diffNames.isEmpty()) {
+            outputName = mat.vmtName + "_" + mat.diffNames.first();
+        } else {
+            outputName = mat.vmtName;
+        }
+        QString dstFile = tempDir + "/vtfGenerated/" + outputName + ".vtf";
+
+        // 确保目录存在
+        QDir().mkpath(QFileInfo(dstFile).path());
+
+        if (QFile::copy(vtfFile, dstFile)) {
+            emit logMessage(QString("直接复制VTF: %1 -> %2").arg(vtfFile).arg(dstFile));
+            return true;  // 跳过后续 PNG 处理
+        } else {
+            emit logMessage(QString("复制VTF失败: %1").arg(vtfFile));
+            // 继续尝试 PNG
+        }
+    }
+
     // 检查是否是多帧动图
     if (mat.MFilename.contains('@')) {
         // 动图处理

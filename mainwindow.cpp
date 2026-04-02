@@ -16,11 +16,15 @@
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QTimer>
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , workerThread(nullptr)
+    , worker(nullptr)
 {
     ui->setupUi(this);
+
 
     this->setWindowTitle("L4D2MaterialsHelper(v1.0)");
 
@@ -76,8 +80,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->tbMaterials->horizontalHeader()->setMinimumSectionSize(10);//最小列宽,可以压缩到最小是这样
     ui->tbMaterials->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);//以父窗口给的大小判定宽度
 
-    ui->tbMaterials->setColumnCount(5);
-    ui->tbMaterials->setHorizontalHeaderLabels({"材质名","所属组件","是否有差分","差分名字","操作"});
+    ui->tbMaterials->setColumnCount(4);
+    ui->tbMaterials->setHorizontalHeaderLabels({"材质名","所属组件","配置数量","操作"});
 
     updateMaterialTable();  // 初始化表格
 
@@ -159,18 +163,36 @@ void MainWindow::on_btnVpk_clicked()
     }
 }
 
-//事件结束保存每个填框的地址
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // 如果任务还在运行，等待结束
+    if (workerThread && workerThread->isRunning()) {
+        workerThread->quit();
+        workerThread->wait(5000);
+        if (workerThread->isRunning()) {
+            workerThread->terminate();
+            workerThread->wait(1000);
+        }
+    }
+
+    // 清理（如果 onWorkFinished 已经被调用，指针已经是 nullptr）
+    if (worker) {
+        delete worker;
+        worker = nullptr;
+    }
+    if (workerThread) {
+        delete workerThread;
+        workerThread = nullptr;
+    }
+
+    // 保存设置...
     QSettings settings("Local", "Path");
     settings.setValue("VtfPath", ui->editVtf->text());
     settings.setValue("VpkPath", ui->editVpk->text());
     settings.setValue("SourcePath", ui->editSource->text());
     settings.setValue("OutputPath", ui->editOutput->text());
     settings.setValue("MatPath", ui->editVpkMat->text());
-
-    // 保存角色名称
-    settings.setValue("RoleName", ui->editName->text());  // 假设角色名称的编辑框叫 editName
+    settings.setValue("RoleName", ui->editName->text());
 
     event->accept();
 }
@@ -431,6 +453,7 @@ void MainWindow::on_btnEditComponent_clicked()
 
     if(dlg.exec() == QDialog::Accepted) {
         QString newName = dlg.getComponentName();
+        QString oldName = comp.name;  // 保存旧名字
 
         if (newName != comp.name) {
             if (newName.isEmpty()) {
@@ -445,14 +468,81 @@ void MainWindow::on_btnEditComponent_clicked()
             }
         }
 
-        // 保存旧的材质列表和新的材质列表
+        // 保存旧的材质列表和新的组件列表材质
         QList<MaterialInComponent> oldMaterials = comp.materials;
         QList<MaterialInComponent> newMaterials = dlg.getMaterialList();
 
-        comp.name = newName;
+        QMap<QString,QString> vmtNameChangeMap;
+        QMap<QString,QString> displayNameChangeMap;
+
+
+        //记录新旧vmtName display名字不同的材质
+        for(MaterialInComponent& micold : oldMaterials)
+        {
+            for(MaterialInComponent& micnew: newMaterials)
+            {
+                if(micold.matId == micnew.matId)
+                {
+                    if(micnew.vmtName!=micold.vmtName)
+                    {
+                        vmtNameChangeMap[micold.matId] = micnew.vmtName;
+                    }
+                    if(micnew.name!=micold.name)
+                    {
+                        displayNameChangeMap[micold.matId] = micnew.name;
+                    }
+                }
+            }
+        }
+
+        bool nameChanged = false;
+        if (newName != oldName) {
+            for (Material &mat : materials) {
+                if (mat.Mcomponent == oldName) {
+                    mat.Mcomponent = newName;
+                    if(mat.diffNames.isEmpty())
+                        qDebug()<<mat.vmtName<<mat.Mcomponent<<mat.vmtName<<"无差分"<<mat.materialDefId;
+                    else
+                        qDebug()<<mat.vmtName<<mat.Mcomponent<<mat.vmtName<<mat.diffNames.first()<<mat.materialDefId;
+                    nameChanged = true;
+                }
+            }
+
+            qDebug()<<"1";
+            for(MaterialInComponent &mic: comp.materials)
+            {
+                if(!mic.diffNames.isEmpty())
+                    qDebug()<<mic.diffNames.first()<<mic.matId;
+                else
+                    qDebug()<<mic.vmtName<<"无差分"<<mic.matId;
+            }
+            qDebug()<<"1";
+
+            if(nameChanged)
+            {
+                comp.name = newName;
+                qDebug()<<comp.name;
+                qDebug()<<"2";
+                for(MaterialInComponent &mic: comp.materials)
+                {
+                    if(!mic.diffNames.isEmpty())
+                        qDebug()<<mic.diffNames.first()<<mic.matId;
+                    else
+                        qDebug()<<mic.vmtName<<"无差分"<<mic.matId;
+                }
+                qDebug()<<"2";
+            }
+
+            // 同步变体配置
+            for (ComponentVariants &cv : projectVariants) {
+                if (cv.componentName == oldName) {
+                    cv.componentName = newName;
+                }
+            }
+        }
         comp.materials = newMaterials;
 
-        // ==== 清理材质表：检查组件、材质、差分 ====
+        //清理材质表：检查组件、材质、差分
         QList<Material> validMaterials;
         int removedCount = 0;
         int modifiedCount = 0;
@@ -464,12 +554,24 @@ void MainWindow::on_btnEditComponent_clicked()
                 continue;
             }
 
+            if(vmtNameChangeMap.contains(mat.materialDefId))
+            {
+                mat.vmtName = vmtNameChangeMap[mat.materialDefId];
+                modifiedCount++;
+            }
+            if(displayNameChangeMap.contains(mat.materialDefId))
+            {
+                mat.Mname = displayNameChangeMap[mat.materialDefId];
+                modifiedCount++;
+            }
+
             //在新列表，在旧列表（保留/编辑） 不在新列表，在旧列表（删） 在新列表，不在旧列表(增)
 
             // 在当前组件的旧材质列表中查找对应的材质定义，找旧的材质列表里头有没有这个在组件里的材质，有就用指针oldMic记录
             const MaterialInComponent *oldMic = nullptr;
             for (const MaterialInComponent &mic : oldMaterials) {
-                if (mic.vmtName == mat.vmtName) {
+
+                if (mic.matId == mat.materialDefId) {
                     oldMic = &mic;
                     break;
                 }
@@ -478,7 +580,10 @@ void MainWindow::on_btnEditComponent_clicked()
             // 在当前组件的新材质列表中查找对应的材质定义，找旧的材质列表里头有没有这个组件里新的材质,有就用指针newMic记录
             const MaterialInComponent *newMic = nullptr;
             for (const MaterialInComponent &mic : newMaterials) {
-                if (mic.vmtName == mat.vmtName) {
+
+                qDebug()<<"mic.matId"<<mic.matId<<"mat.materialDefId"<<mat.materialDefId;
+
+                if (mic.matId == mat.materialDefId) {
                     newMic = &mic;
                     break;
                 }
@@ -487,7 +592,7 @@ void MainWindow::on_btnEditComponent_clicked()
             // 如果这个旧材质在新组件中已经不存在了，删除它
             if (!newMic) {
                 removedCount++;
-                qDebug() << "删除材质(组件中已移除):" << mat.Mname << mat.vmtName;
+                qDebug() << "删除材质(组件中已移除):" << mat.Mname << mat.vmtName<<mat.materialDefId<<mat.id;
                 continue;
             }
 
@@ -531,13 +636,89 @@ void MainWindow::on_btnEditComponent_clicked()
             validMaterials.append(mat);
         }
 
+        //处理新增的材质和差分
+        int addedCount = 0;
+
+        // 遍历新材质列表进行同步
+        for (const MaterialInComponent &newMic : newMaterials) {
+            // 检查这个材质在 validMaterials 中是否已存在（通过 component + vmtName）
+            bool materialExists = false;
+            for (const Material &mat : validMaterials) {
+                if (mat.Mcomponent == comp.name && mat.materialDefId == newMic.matId) {
+                    materialExists = true;
+                    break;
+                }
+            }
+
+            if (!materialExists) {
+                // 材质不存在 → 添加该材质的所有差分
+                if (newMic.hasDiff && !newMic.diffNames.isEmpty()) {
+                    for (const QString &diff : newMic.diffNames) {
+                        Material newMat;
+                        newMat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 新生成实例ID
+                        newMat.materialDefId = newMic.matId;  // 保存材质定义ID
+                        newMat.Mcomponent = comp.name;
+                        newMat.vmtName = newMic.vmtName;
+                        newMat.Mname = newMic.name;
+                        newMat.hasDiff = true;
+                        newMat.diffNames = QStringList() << diff;
+                        newMat.isinit = false;
+                        validMaterials.append(newMat);
+                        addedCount++;
+                    }
+                } else {
+                    // 无差分材质
+                    Material newMat;
+                    newMat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 新生成实例ID
+                    newMat.materialDefId = newMic.matId;  // 保存材质定义ID
+                    newMat.Mcomponent = comp.name;
+                    newMat.vmtName = newMic.vmtName;
+                    newMat.Mname = newMic.name;
+                    newMat.hasDiff = false;
+                    newMat.isinit = false;
+                    validMaterials.append(newMat);
+                    addedCount++;
+                }
+            } else {
+                // 材质已存在，检查是否有新增的差分
+                // 收集这个材质在 validMaterials 中已有的差分名
+                QStringList existingDiffs;
+                for (const Material &mat : validMaterials) {
+                    if (mat.Mcomponent == comp.name && mat.vmtName == newMic.vmtName) {
+                        if (mat.hasDiff && !mat.diffNames.isEmpty()) {
+                            existingDiffs.append(mat.diffNames.first());
+                        }
+                    }
+                }
+
+                // 遍历新材质的所有差分，找出新增的
+                for (const QString &newDiff : newMic.diffNames) {
+                    if (!existingDiffs.contains(newDiff)) {
+                        // 新增差分，创建配置实例
+                        Material newMat;
+                        newMat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 新生成实例ID
+                        newMat.materialDefId = newMic.matId;  // 保存材质定义ID
+                        newMat.Mcomponent = comp.name;
+                        newMat.vmtName = newMic.vmtName;
+                        newMat.Mname = newMic.name;
+                        newMat.hasDiff = true;
+                        newMat.diffNames = QStringList() << newDiff;
+                        newMat.isinit = false;
+                        validMaterials.append(newMat);
+                        addedCount++;
+                    }
+                }
+            }
+        }
+
         // 更新材质表
-        if (removedCount > 0 || modifiedCount > 0) {
+        if (removedCount > 0 || modifiedCount > 0 || addedCount > 0) {
             materials = validMaterials;
             updateMaterialTable();
             QString msg;
             if (removedCount > 0) msg += QString("删除 %1 个材质; ").arg(removedCount);
-            if (modifiedCount > 0) msg += QString("更新 %1 个材质的差分状态").arg(modifiedCount);
+            if (modifiedCount > 0) msg += QString("更新 %1 个材质; ").arg(modifiedCount);
+            if (addedCount > 0) msg += QString("新增 %1 个差分配置").arg(addedCount);
             QMessageBox::information(this, "提示", msg);
         }
 
@@ -809,123 +990,94 @@ bool MainWindow::showComponentInfoDialog(Addoninfo &info, const QStringList &com
 
 
 //材质区
-//增加材质按钮
+//增加材质按钮,准备改成自动生成材质
 void MainWindow::on_btnNewMaterial_clicked()
 {
-    MaterialSetting dlg(this);
-    Material newMat;
+    int added = 0;
+    int skipped = 0;
 
-    // 生成ID
-    newMat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-
-    dlg.setAllMaterials(materials);
-    dlg.setEditingMode(false);  // 设置为新建模式
-    dlg.setMaterialData(newMat, components);
-
-    if (dlg.exec() == QDialog::Accepted) {
-        dlg.getMaterialData(newMat);
-
-        // 检查vmtName不能为空
-        if (newMat.vmtName.isEmpty()) {
-            QMessageBox::warning(this, "错误", "请先选择组件和材质");
-            return;
-        }
-
-        // 检查勾选了差分但没有差分名的情况
-        if (newMat.hasDiff && newMat.diffNames.isEmpty()) {
-            QMessageBox::warning(this, "错误", "勾选了启用差分，但没有选择具体的差分！");
-            return;
-        }
-
-        // 统计这个组件+材质下已有的配置
-        QStringList usedDiffs;
-        bool hasNonDiffExist = false;  // 是否存在无差分版本
-
-        for (const Material &m : materials) {
-            if (m.vmtName == newMat.vmtName && m.Mcomponent == newMat.Mcomponent) {
-                if (m.hasDiff && !m.diffNames.isEmpty()) {
-                    usedDiffs.append(m.diffNames);
-                } else {
-                    hasNonDiffExist = true;  // 存在无差分版本
+    //找materials全局变量是否存在这个
+    for(Component comp : components)
+    {
+        for(MaterialInComponent mic : comp.materials)
+        {
+            bool exists = false;
+            for(Material m: materials)
+            {
+                if(m.Mcomponent == comp.name && m.vmtName == mic.vmtName)
+                {
+                    exists = true;
+                    break;
                 }
             }
-        }
 
-        // 找到这个组件+材质的总差分数量和所有差分列表
-        int totalDiffCount = 0;
-        QStringList allDiffs;
-        bool materialHasDiff = false;  // 组件中的这个材质是否有差分
-
-        for (const Component &comp : components) {
-            if (comp.name == newMat.Mcomponent) {
-                for (const MaterialInComponent &mat : comp.materials) {
-                    if (mat.vmtName == newMat.vmtName) {
-                        allDiffs = mat.diffNames;
-                        totalDiffCount = mat.diffNames.size();
-                        materialHasDiff = mat.hasDiff;  // 组件中这个材质是否有差分
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-
-        // 情况1：组件中的这个材质是有差分的
-        if (materialHasDiff) {
-            // 如果用户选择无差分
-            if (!newMat.hasDiff) {
-                QMessageBox::warning(this, "错误",
-                                     QString("组件 '%1' 中的材质 '%2' 是有差分的，不能创建无差分版本")
-                                         .arg(newMat.Mcomponent).arg(newMat.vmtName));
-                return;
+            if(exists)
+            {
+                skipped++;
+                continue;
             }
 
-            // 如果用户选择有差分
-            if (newMat.hasDiff) {
-                // 检查是否还有可用差分
-                int remainingDiffs = totalDiffCount - usedDiffs.size();
-                if (remainingDiffs == 0) {
-                    QMessageBox::warning(this, "错误",
-                                         QString("材质 '%1' 的所有差分都已被使用，不能再添加")
-                                             .arg(newMat.vmtName));
-                    return;
-                }
+            //没有重复,有差分情况
+            if(mic.hasDiff && !mic.diffNames.isEmpty())
+            {
+                //对每一个差分加入material
+                for(QString &diff : mic.diffNames)
+                {
+                    qDebug() << "=== 创建材质实例 ===";
+                    qDebug() << "组件名:" << comp.name;
+                    qDebug() << "材质名:" << mic.name;
+                    qDebug() << "vmtName:" << mic.vmtName;
+                    qDebug() << "差分名:" << diff;
 
-                // 检查选择的差分是否已被使用
-                for (const QString &diff : newMat.diffNames) {
-                    if (usedDiffs.contains(diff)) {
-                        QMessageBox::warning(this, "错误",
-                                             QString("差分 '%1' 已被使用，不能重复添加").arg(diff));
-                        return;
-                    }
+                    qDebug() << "创建材质实例，差分名:" << diff;
+
+                    Material newmat;
+                    newmat.Mcomponent = comp.name;
+                    newmat.vmtName = mic.vmtName;
+                    newmat.Mname = mic.name;
+                    newmat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 新生成实例ID
+                    newmat.materialDefId = mic.matId;  // 保存材质定义ID
+                    newmat.hasDiff = true;
+                    newmat.diffNames = QStringList()<<diff;
+                    newmat.isinit = false;
+                    newmat.MlightwarpSource = SOURCE_TOOL;
+                    newmat.Mlightwarp = QString("%1/Resources/Resources/Vtf/toon_light.vtf").arg(QApplication::applicationDirPath());
+                    materials.append(newmat);
+                    added++;
                 }
             }
-        }
-        // 情况2：组件中的这个材质是无差分的
-        else {
-            // 如果用户选择有差分
-            if (newMat.hasDiff) {
-                QMessageBox::warning(this, "错误",
-                                     QString("组件 '%1' 中的材质 '%2' 是无差分的，不能创建有差分版本")
-                                         .arg(newMat.Mcomponent).arg(newMat.vmtName));
-                return;
-            }
-
-            // 如果用户选择无差分
-            if (!newMat.hasDiff) {
-                // 检查是否已存在无差分版本
-                if (hasNonDiffExist) {
-                    QMessageBox::warning(this, "错误",
-                                         QString("材质 '%1' 的无差分版本已存在，不能重复创建")
-                                             .arg(newMat.vmtName));
-                    return;
-                }
+            //没重复无差分情况
+            else
+            {
+                Material newmat;
+                newmat.Mcomponent = comp.name;
+                newmat.vmtName = mic.vmtName;
+                newmat.Mname = mic.name;
+                newmat.id = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 新生成实例ID
+                newmat.materialDefId = mic.matId;  // 保存材质定义ID
+                newmat.hasDiff = false;
+                newmat.diffNames = QStringList();
+                newmat.isinit = false;
+                newmat.MlightwarpSource = SOURCE_TOOL;
+                newmat.Mlightwarp = QString("%1/Resources/Resources/Vtf/toon_light.vtf").arg(QApplication::applicationDirPath());
+                materials.append(newmat);
+                added++;
             }
         }
-
-        materials.append(newMat);
-        updateMaterialTable();
     }
+
+    if(added > 0 || skipped > 0)
+    {
+        updateMaterialTable();
+        updateTreeWidget();
+        QMessageBox::information(this,"完成生成",QString("新增%1个差分，跳过%2个差分").arg(added).arg(skipped));
+    }
+    else
+    {
+        QMessageBox::information(this,"提示","所有材质已经生成,无需添加");
+    }
+
+
 }
 
 //删除材质按钮
@@ -939,8 +1091,21 @@ void MainWindow::on_btnDelMaterial_clicked()
         return;
     }
 
-    // 确认删除
-    QString matName = materials[currentRow].Mname;
+    //获取选中材质名，组件名
+    QString component = ui->tbMaterials->item(currentRow,1)->text();
+    QString matName = ui->tbMaterials->item(currentRow,0)->text();
+
+    QString vmtName;
+    for(Material& m : materials)
+    {
+        if(m.Mcomponent == component && m.Mname == matName)
+        {
+            vmtName = m.vmtName;
+            break;
+        }
+    }
+
+    //确认删除
     QMessageBox::StandardButton reply = QMessageBox::question(
         this,
         "确认删除",
@@ -949,8 +1114,14 @@ void MainWindow::on_btnDelMaterial_clicked()
         );
 
     if (reply == QMessageBox::Yes) {
-        // 从列表中移除
-        materials.removeAt(currentRow);
+        // 从列表中遍历组件名一样，然后vmtName又一样的差分进行移除
+        for(int i = materials.size()-1 ; i >= 0; i-- )
+        {
+            if(materials[i].Mcomponent == component && materials[i].vmtName == vmtName)
+            {
+                materials.removeAt(i);
+            }
+        }
 
         // 刷新表格
         updateMaterialTable();
@@ -960,53 +1131,115 @@ void MainWindow::on_btnDelMaterial_clicked()
 //刷新材质表格
 void MainWindow::updateMaterialTable()
 {
-    ui->tbMaterials->setRowCount(materials.size());
+    ui->tbMaterials->setAutoScroll(false);
 
-    for (int i = 0; i < materials.size(); i++) {
-        Material &mat = materials[i];
+    //由materials当场生成当场存储
+    //QMap groupMap<组件名+材质名(qstring),材质组结构体(struct)>
+    QMap<QString,MaterialGroup> groupMap;
 
-        //放收到的信息上来表格
-        ui->tbMaterials->setItem(i, 0, new QTableWidgetItem(mat.Mname));
-        ui->tbMaterials->setItem(i, 1, new QTableWidgetItem(mat.Mcomponent));
-        ui->tbMaterials->setItem(i, 2, new QTableWidgetItem(mat.hasDiff ? "是" : "否"));
+    for(Material &m:materials)
+    {
+        //QMap groupMap<组件名+材质名(qstring),材质组结构体(struct)>
+        QString key = m.Mcomponent+"|"+m.vmtName;
 
-        //判断是否有差分，这里是遗留方便后期修改统一进行材质里头差分修改。
-        QString diffText = mat.hasDiff ? mat.diffNames.join(",") : "-";
-        ui->tbMaterials->setItem(i, 3, new QTableWidgetItem(diffText));
+        //没加过这个组件
+        if(!groupMap.contains(key))
+        {
+            MaterialGroup group;
+            group.component = m.Mcomponent;
+            group.vmtName = m.vmtName;
+            group.displayName = m.Mname;
+            group.diffList.append(&m);
 
-        //第四个放按钮
+            groupMap[key] = group;
+        }
+        else
+        {
+            //加过这个组件直接加mat进去
+            groupMap[key].diffList.append(&m);
+        }
+    }
+
+    ui->tbMaterials->setRowCount(groupMap.size());
+    int row = 0;
+    for(auto it = groupMap.begin();it !=groupMap.end();it++)
+    {
+        MaterialGroup &group = it.value();
+        //一二列直接显示信息
+        ui->tbMaterials->setItem(row,0,new QTableWidgetItem(group.displayName));
+        ui->tbMaterials->setItem(row,1,new QTableWidgetItem(group.component));
+
+        //三列该材质已配置多少个差分,不用检查实际差分，只是检查是不是初始化
+        int inited = 0;
+        for(Material* diff : group.diffList)
+        {
+            if(diff->isinit)
+            {
+                inited++;
+                if(!diff->diffNames.isEmpty())
+                    qDebug()<<"当前的差分名字:"<<diff->diffNames.first()<<"diff->id"<<diff->id;
+                else
+                    qDebug()<<"当前的差分名字:无差分的"<<diff->vmtName<<"diff->id"<<diff->id;
+            }
+        }
+
+        QString status = QString("已配置:%1/%2").arg(inited).arg(group.diffList.size());
+        qDebug()<<"group.diffList.size():"<<group.diffList.size();
+
+        ui->tbMaterials->setItem(row,2,new QTableWidgetItem(status));
+
+        //四列按钮
         QPushButton *btnSetting = new QPushButton("设置", ui->tbMaterials);
+
         connect(btnSetting, &QPushButton::clicked,
                 this, &MainWindow::onMaterialSettingClicked,
                 Qt::UniqueConnection);
-        ui->tbMaterials->setCellWidget(i, 4, btnSetting);
+
+        btnSetting->setProperty("component",group.component);
+        btnSetting->setProperty("vmtName",group.vmtName);
+        ui->tbMaterials->setCellWidget(row, 3, btnSetting);
+        ++row;
     }
 }
 
-//新增：材质设置按钮点击
+//新增：材质设置按钮点击,单个设置
 void MainWindow::onMaterialSettingClicked()
 {
+    //获取发送者的btn对象
     QPushButton *btn = qobject_cast<QPushButton*>(sender());
     if (!btn) return;
 
-    int row = -1;
-    for (int i = 0; i < ui->tbMaterials->rowCount(); i++) {
-        if (ui->tbMaterials->cellWidget(i, 4) == btn) {
-            row = i;
-            break;
+    QString vmtName = btn->property("vmtName").toString();
+    QString component = btn->property("component").toString();
+
+
+    QList<Material*> diffList;
+    for(Material &mat:materials)
+    {
+        if(mat.vmtName == vmtName && mat.Mcomponent == component)
+        {
+            diffList.append(&mat);
         }
     }
-    if (row < 0 || row >= materials.size()) return;
+    if (diffList.isEmpty()) return;
 
     MaterialSetting dlg(this);
 
     dlg.setAllMaterials(materials);  //继续传防止重命名
 
     //直接传 components 列表
-    dlg.setMaterialData(materials[row], components);//传组件可以选差分
+    //dlg.setMaterialData(materials[row], components);//传组件可以选差分旧逻辑
+    qDebug() << "当前点击设置的材质所属组件：" << component << ", vmtName:" << vmtName;
+    for(Material* m1 : diffList)
+    {
+        qDebug() << "材质" << vmtName << "hasDiff:" << m1->hasDiff
+                 << "包含差分:" << (m1->diffNames.isEmpty() ? "无" : m1->diffNames.first());
+    }
+
+    dlg.setMaterialGroup(component,vmtName,diffList,components);
 
     if (dlg.exec() == QDialog::Accepted) {
-        dlg.getMaterialData(materials[row]);//赋值到这个引用体直接修改材质
+        //dlg.getMaterialData(materials[row]);//赋值到这个引用体直接修改材质
         updateMaterialTable();
         updateTreeWidget();
     }
@@ -1036,6 +1269,7 @@ void MainWindow::on_cbSkipVpk_toggled(bool checked)
 }
 
 // 执行按钮
+#if 0
 void MainWindow::on_btnExecute_clicked()
 {
     // 每次执行前清空日志
@@ -1288,6 +1522,42 @@ void MainWindow::on_btnExecute_clicked()
     // 保存日志到文件
     saveLogToFile();
 }
+#endif
+
+void MainWindow::on_btnExecute_clicked()
+{
+    if (workerThread && worker) {
+        QMessageBox::warning(this, "提示", "已有任务正在执行，请等待完成");
+        return;
+    }
+
+    ui->l4mhRiZhi->clear();
+    ui->l4mhRiZhi->append("开始执行...");
+    ui->progressBar->setValue(0);
+    ui->progressBar->setVisible(true);
+    ui->btnExecute->setEnabled(false);
+
+    // 无父对象
+    workerThread = new QThread(nullptr);
+    worker = new ProcessWorker();
+    worker->moveToThread(workerThread);
+
+    worker->setParams(skipPreprocess, skipVtf, skipVmt, skipVpk,
+                      ui->editSource->text(), ui->editOutput->text(),
+                      ui->editVpkMat->text(), ui->editVtf->text(), ui->editVpk->text(),
+                      components, materials, projectVariants, globalAddonInfo);
+
+    connect(workerThread, &QThread::started, worker, &ProcessWorker::doWork);
+    connect(worker, &ProcessWorker::logMessage, this, &MainWindow::onWorkerLog);
+    connect(worker, &ProcessWorker::progressUpdated, this, &MainWindow::onWorkerProgress);
+    connect(worker, &ProcessWorker::workFinished, this, &MainWindow::onWorkFinished);
+
+    // 不要这两个连接！
+    // m_deleteWorkerConn = connect(workerThread, &QThread::finished, worker, &QObject::deleteLater);
+    // m_deleteThreadConn = connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+
+    workerThread->start();
+}
 
 // 保存日志到文件的函数
 void MainWindow::saveLogToFile()
@@ -1390,6 +1660,7 @@ void MainWindow::on_btnSaveTestCase_clicked()
             if (mat.hasDiff) {
                 out << "|" << mat.diffNames.join(",");
             }
+            out << "|" << mat.matId << "\n";  // ← 加在这里
             out << "\n";
         }
         out << "comp_end\n";
@@ -1404,13 +1675,18 @@ void MainWindow::on_btnSaveTestCase_clicked()
         out << "id=" << mat.id << "\n";
         out << "Mname=" << mat.Mname << "\n";
         out << "vmtName=" << mat.vmtName << "\n";
+        out << "materialDefId=" << mat.materialDefId << "\n";
         out << "Mcomponent=" << mat.Mcomponent << "\n";
         out << "MFilename=" << mat.MFilename << "\n";
         out << "Mlightwarp=" << mat.Mlightwarp << "|" << mat.MlightwarpSource << "\n";
         out << "Mbumpmap=" << mat.Mbumpmap << "|" << mat.MbumpmapSource << "\n";
         out << "Menvmap=" << mat.Menvmap << "|" << mat.MenvmapSource << "\n";
+        out << "Memissive=" << mat.Memissive << "|" << mat.MemissiveSource << "\n";
         out << "hasDiff=" << mat.hasDiff << "\n";
         out << "diffNames=" << mat.diffNames.join(",") << "\n";
+        out << "isInit=" << mat.isinit << "\n";
+        out << "useAlphaTexture=" << mat.useAlphaTexture << "\n";
+        out << "alphaTextureName=" << mat.alphaTextureName << "\n";
         out << "customVmt=" << QString(mat.customVmtContent).replace("\n", "\\n") << "\n";  // 把换行符转义
         out << "params=" << mat.MAlpha << "," << mat.Mnocull << "," << mat.Mnodecal << ","
             << mat.Mselfillum << "," << mat.Mhalflambert << "," << mat.Mphong << ","
@@ -1530,10 +1806,16 @@ void MainWindow::on_btnLoadTestCase_clicked()
                         mat.name = parts[0];
                         mat.vmtName = parts[1];
                         mat.hasDiff = (parts[2] == "1");
-                        if (mat.hasDiff && parts.size() > 3) {
+                        int idx = 3;
+                        if (mat.hasDiff) {
                             mat.diffNames = parts[3].split(',', Qt::SkipEmptyParts);
+                            idx = 4;
                         }
-                        mat.matId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                        if (parts.size() > idx) {
+                            mat.matId = parts[idx];  // 读取保存的 matId
+                        } else {
+                            mat.matId = QUuid::createUuid().toString(QUuid::WithoutBraces);  // 兼容旧文件
+                        }
                         currentComp.materials.append(mat);
                         qDebug() << "添加材质到组件:" << mat.name;
                     }
@@ -1563,6 +1845,8 @@ void MainWindow::on_btnLoadTestCase_clicked()
                     currentMat.Mcomponent = line.mid(11);
                 else if (line.startsWith("MFilename="))
                     currentMat.MFilename = line.mid(10);
+                else if (line.startsWith("materialDefId="))
+                    currentMat.materialDefId = line.mid(14);
                 else if (line.startsWith("Mlightwarp=")) {
                     QStringList parts = line.mid(11).split('|');
                     if (parts.size() >= 2) {
@@ -1592,6 +1876,19 @@ void MainWindow::on_btnLoadTestCase_clicked()
                         currentMat.diffNames = diffs.split(',', Qt::SkipEmptyParts);
                     }
                 }
+                else if (line.startsWith("Memissive=")) {  // 新增
+                    QStringList parts = line.mid(10).split('|');
+                    if (parts.size() >= 2) {
+                        currentMat.Memissive = parts[0];
+                        currentMat.MemissiveSource = parts[1];
+                    }
+                }
+                else if (line.startsWith("isInit="))
+                    currentMat.isinit = (line.mid(7) == "1");
+                else if (line.startsWith("useAlphaTexture="))
+                    currentMat.useAlphaTexture = (line.mid(16) == "1");
+                else if (line.startsWith("alphaTextureName="))
+                    currentMat.alphaTextureName = line.mid(17);
                 else if (line.startsWith("customVmt=")) {
                     QString content = line.mid(10);
                     content.replace("\\n", "\n");  // 把转义的换行符恢复
@@ -1658,6 +1955,32 @@ void MainWindow::on_btnLoadTestCase_clicked()
     }
 
     file.close();
+
+    //兼容旧文件的materialDefId
+    for (Material &mat : materials) {
+        bool found = false;
+        for (const Component &comp : components) {
+            if (comp.name == mat.Mcomponent) {
+                for (const MaterialInComponent &mic : comp.materials) {
+                    if (mic.vmtName == mat.vmtName) {
+                        // 如果 materialDefId 已经是正确的，就不改；否则更新
+                        if (mat.materialDefId != mic.matId) {
+                            qDebug() << "修复 materialDefId:" << mat.vmtName
+                                     << "旧:" << mat.materialDefId
+                                     << "新:" << mic.matId;
+                            mat.materialDefId = mic.matId;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if (!found) {
+            qDebug() << "警告：材质" << mat.Mname << "找不到对应的材质定义";
+        }
+    }
 
     // 刷新界面
     updateTreeWidget();
@@ -1729,6 +2052,40 @@ void MainWindow::on_btnVariant_clicked()
     }
 }
 
+void MainWindow::onWorkFinished(bool success)
+{
+    ui->btnExecute->setEnabled(true);
 
+    if (success) {
+        ui->l4mhRiZhi->append("执行完成！");
+        saveLogToFile();
+    } else {
+        ui->l4mhRiZhi->append("执行失败！");
+    }
+
+    // 直接 delete，不用 deleteLater
+    if (worker) {
+        delete worker;
+        worker = nullptr;
+    }
+    if (workerThread) {
+        workerThread->quit();
+        workerThread->wait(1000);
+        delete workerThread;
+        workerThread = nullptr;
+    }
+}
+
+void MainWindow::onWorkerLog(const QString &msg)
+{
+    ui->l4mhRiZhi->append(msg);
+}
+
+void MainWindow::onWorkerProgress(int current, int total)
+{
+    if (total > 0) {
+        ui->progressBar->setValue(current);
+    }
+}
 
 

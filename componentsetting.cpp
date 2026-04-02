@@ -22,7 +22,7 @@ Componentsetting::Componentsetting(QWidget *parent)
     listMaterials = new QListWidget(this);
     btnAdd = new QPushButton("添加材质",this);
     btnEditName = new QPushButton("修改中文名", this);  // 新增
-    btnEditVmt = new QPushButton("修改英文名", this);   // 新增
+    btnEditVmt = new QPushButton("修改vmtName", this);   // 新增
     btnEdit = new QPushButton("配置差分",this);
     btnDelete = new QPushButton("删除",this);
 
@@ -88,7 +88,7 @@ void Componentsetting::onAddMaterial()
     QString name = QInputDialog::getText(this, "添加材质", "显示名(中文):");
     if (name.isEmpty()) return;
 
-    QString vmtName = QInputDialog::getText(this, "添加材质", "文件名(英文):");
+    QString vmtName = QInputDialog::getText(this, "添加材质", "文件名(vmtName):");
     if (vmtName.isEmpty()) return;
 
     // 检查中文名重复
@@ -221,6 +221,12 @@ void Componentsetting::onEditMaterial()
 
     MaterialInComponent &mat = tempMaterials[row];
 
+    qDebug() << "=== 打开差分配置前 ===";
+    qDebug() << "材质名:" << mat.name;
+    qDebug() << "vmtName:" << mat.vmtName;
+    qDebug() << "当前 hasDiff:" << mat.hasDiff;
+    qDebug() << "当前 diffNames:" << mat.diffNames;
+
     // 直接打开配置弹窗，不询问是否有差分
     DiffConfigDialog dlg(this);
     //窗口获取当前选中组件差分
@@ -230,8 +236,16 @@ void Componentsetting::onEditMaterial()
         mat.diffNames = dlg.getDiffNames();
         mat.hasDiff = !mat.diffNames.isEmpty();  // 有差分就true，没有就false
 
+        qDebug() << "=== 配置差分保存 ===";
+        qDebug() << "材质名:" << mat.name;
+        qDebug() << "vmtName:" << mat.vmtName;
+        qDebug() << "hasDiff:" << mat.hasDiff;
+        qDebug() << "diffNames:" << mat.diffNames;
+
         // 更新显示
         updateMaterialList();
+    } else {
+        qDebug() << "=== 配置差分取消 ===";
     }
 }
 

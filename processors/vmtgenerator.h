@@ -72,6 +72,8 @@ private:
     void generateAddonInfo(const QString &filePath, const QString &title,
                            const QString &author, const QString &description,
                            const QString &version, const QString &tagline);
+
+    bool copyEmissiveToVariant(const Material &mat, const QString &targetDir, const QString &sourceBasePath);
 };
 
 #endif // VMTGENERATOR_H

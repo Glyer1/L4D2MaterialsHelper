@@ -5,6 +5,8 @@
 #include <QMainWindow>
 #include <QList>
 #include <QUuid>
+#include <QThread>
+#include "Workers/processworker.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -36,6 +38,16 @@ private:
     bool skipVtf;
     bool skipVmt;
     bool skipVpk;
+
+private:
+    QThread *workerThread=nullptr;
+    ProcessWorker *worker=nullptr;
+
+private:
+    QMetaObject::Connection m_workerFinishedConn;
+    QMetaObject::Connection m_threadFinishedConn;
+    QMetaObject::Connection m_deleteWorkerConn;
+    QMetaObject::Connection m_deleteThreadConn;
 private slots:
     void on_btnSource_clicked();
     void on_btnOutput_clicked();
@@ -74,6 +86,11 @@ private slots:
     void on_btnVtfOpen_clicked();
 
     void on_btnVpkOpen_clicked();
+
+private slots:
+    void onWorkFinished(bool success);
+    void onWorkerLog(const QString &msg);
+    void onWorkerProgress(int current, int total);
 
 protected:
     void closeEvent(QCloseEvent *event) override;

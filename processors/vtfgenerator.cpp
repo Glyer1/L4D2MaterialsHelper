@@ -349,6 +349,24 @@ bool VTFGenerator::convertAll()
         else
         {
             // 单帧材质
+            // 先计算输出文件名
+            QString outputFileName;
+            if (mat.hasDiff && !mat.diffNames.isEmpty()) {
+                outputFileName = mat.vmtName + "_" + mat.diffNames.first() + ".vtf";
+            } else {
+                outputFileName = baseName + ".vtf";
+            }
+            QString outputFile = outputDir + "/" + outputFileName;
+
+            // 检查 VTF 是否已存在（被 TexturePreprocessor 直接复制过来了）
+            if (QFile::exists(outputFile)) {
+                emit logMessage(QString("VTF已存在，跳过转换: %1").arg(outputFileName));
+                // 不增加 allSuccess 失败计数，继续下一个
+                current++;
+                continue;
+            }
+
+            // 单帧材质
             QString inputFile;
 
             //判断是否需要TGA（高亮Alpha 或 独立Alpha贴图）
